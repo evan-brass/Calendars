@@ -42,8 +42,20 @@ export default function (base) {
 				return definition.compare;
 			} else if (definition.type == Date) {
 				return (A, B) => (A.getTime() == B.getTime());
+			} else if (definition.type == Array || definition.type == HTMLCollection) {
+				return function (A, B) {
+					if (A.length == B.length) {
+						for (let i = 0; i < A.length; ++i) {
+							if (A[i] != B[i]) {
+								return false;
+							}
+						}
+						return true;
+					}
+					return false;
+				};
 			}
-			// Handle other datatypes
+			// TODO: Handle other datatypes
 		}
 
 		connectedCallback() {

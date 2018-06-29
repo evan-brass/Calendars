@@ -143,6 +143,7 @@ export default function (base) {
 				<div class="cells">
 					${`<div part="cell" class="cell" tabindex="-1"></div>`.repeat(7 /* columns */ * 6 /* rows */)}
 				</div>
+				<div class="slots"></div>
 			`;
 			this.shadowRoot.appendChild(document.importNode(template.content, true));
 		}
@@ -168,6 +169,12 @@ export default function (base) {
 			// Make sure that the basis is focused as long as any element is focused
 			this.depends(this.updateBasisCell.bind(this), ['basis']);
 			this.updateBasisCell();
+
+			// Place the slots and notify the elements that their slots are available
+			this.elements.slotContainer = this.shadowRoot.querySelector('.slots');
+			this.depends(this.placeSlots.bind(this), ['visibleEvents', 'visibleStart', 'eventsPerCell']);
+			this.placeSlots();
+
 
 			// Start listening to the events we need
 			this.shadowRoot.querySelector('.cells').addEventListener('keydown', this.handleArrowNavigation.bind(this));
@@ -240,7 +247,98 @@ export default function (base) {
 			return (A.getDate() == B.getDate() &&
 				A.getMonth() == B.getMonth() &&
 				A.getFullYear() == B.getFullYear());
+		// Slot placement
+		placeSlots() {
+			// Remove the slots we had previously placed.
+			const slots = this.elements.slotContainer;
+			while (slots.firstChild) {
+				slots.firstChild.remove();
+							}
+
+			// Map of the event-meta elements to the slots that we're offering them.
+			let offerings = new Map();
+			for (let el of this.eventMetaElements) {
+				offerings.set(el, []);
+			}
+
+			// List of events which still need a home.
+			let workingSet = Array.from(this.visibleEvents);
+
+			// Helper Functions
+			const slotColumn = index => index % 7 + 1;
+			const slotRow = (pass, index) => Math.floor(index / 7)*this.rowsPerCell + 4 + pass;
+
+			// Used to give each slot a unique id
+			let slotId = 0;
+			for (let pass = 0; pass < this.eventsPerCell; ++pass) {
+				for (let iterator = new Date(this.visibleStart), cellIndex = 0; cellIndex < 6 * 7;) {
+					let event;
+					if ((event = this.nextPlacable(workingSet, iterator))) {
+						while (iterator < this.visibleEnd && iterator < event.end) {
+							const slotName = 'id-' + slotId++;
+							let slotContainer = document.createElement('div');
+							// TODO: Need to focus the correct cell based on events that bubble through to the slot container.  Or just require the event elementto handle the events that it needs.
+							slotContainer.className = "slot-container";
+							let slot = document.createElement('slot');
+							slot.setAttribute('name', slotName);
+							slotContainer.appendChild(slot);
+							offerings.get(event).push(slotName);
+
+							let startColumn = slotColumn(cellIndex);
+							let startRow = slotRow(pass, cellIndex);
+
+							let span = 1;
+							iterator.setDate(iterator.getDate() + 1);
+							++cellIndex;
+							while (iterator < this.visibleEnd &&
+								iterator < event.end &&
+								slotColumn(cellIndex) > startColumn)
+							{
+								++span;
+								iterator.setDate(iterator.getDate() + 1);
+								++cellIndex;
+							}
+							slotContainer.style.gridColumn = `${startColumn} / span ${span}`;
+							slotContainer.style.gridRow = `${startRow} / span 1`;
+
+							if (pass + 1 == this.eventsPerCell) {
+								let moreEl = document.createElement('div');
+								moreEl.className = "more-placeholder";
+								moreEl.innerHTML = "More";
+								moreEl.style.gridColumn = `${startColumn} / span ${span}`;
+								moreEl.style.gridRow = `${startRow} / span 1`;
+
+								this.elements.slotContainer.appendChild(moreEl);
+								continue;
+							}
+
+							// Testing content:
+							slot.innerHTML = "<div>Test</div>";
+
+							this.elements.slotContainer.appendChild(slotContainer);
+						}
+					} else {
+						// No event can be placed in this row of this cell
+						iterator.setDate(iterator.getDate() + 1);
+						++cellIndex;
+					}
+				}
+			}
+			offerings.forEach((names, eventMeta) => {
+				eventMeta.offerSlots(names);
+			});
 		}
+		nextPlacable(workingSet, date) {
+			for (let i = 0; i < workingSet.length; ++i) {
+				const element = workingSet[i];
+				if (this.isSameDay(element.start, date)) {
+					workingSet.splice(i, 1);
+					return element;
+				}
+			}
+			return undefined;
+		}
+
 		// Controller
 		handleArrowNavigation(e) {
 			let temp = new Date(this.basis);
