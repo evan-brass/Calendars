@@ -147,7 +147,7 @@ export default function (base) {
 			`;
 			this.shadowRoot.appendChild(document.importNode(template.content, true));
 		}
-		// Extract the parts we need and attach our event listeners
+		// Specify our update logic and update everything for the first time.
 		hook() {
 			this.elements = {};
 
@@ -166,6 +166,8 @@ export default function (base) {
 			this.depends(this.updateCells.bind(this), ['visibleStart', 'dateExtractor', 'todayMax']);
 			this.updateCells();
 
+			// TODO: Update the Month Title in the header
+
 			// Make sure that the basis is focused as long as any element is focused
 			this.depends(this.updateBasisCell.bind(this), ['basis']);
 			this.updateBasisCell();
@@ -179,12 +181,6 @@ export default function (base) {
 			// Start listening to the events we need
 			this.shadowRoot.querySelector('.cells').addEventListener('keydown', this.handleArrowNavigation.bind(this));
 			this.shadowRoot.querySelector('.cells').addEventListener('focusin', this.handleFocusChange.bind(this));
-
-			// Make sure that an element is in the tab order
-			if (!this.shadowRoot.querySelector('[tabindex="0"]')) {
-				let focusTarget = this.shadowRoot.querySelector('.cell.in-month');
-				focusTarget.tabIndex = 0;
-			}
 		}
 		updateComputedStyles() {
 			this.elements.computedStyles.innerHTML = this.computedStyles;
@@ -243,17 +239,13 @@ export default function (base) {
 		isToday(d) {
 			return d >= this.todayMin && d <= this.todayMax;
 		}
-		isSameDay(A, B) {
-			return (A.getDate() == B.getDate() &&
-				A.getMonth() == B.getMonth() &&
-				A.getFullYear() == B.getFullYear());
 		// Slot placement
 		placeSlots() {
 			// Remove the slots we had previously placed.
 			const slots = this.elements.slotContainer;
 			while (slots.firstChild) {
 				slots.firstChild.remove();
-							}
+			}
 
 			// Map of the event-meta elements to the slots that we're offering them.
 			let offerings = new Map();
@@ -360,5 +352,6 @@ export default function (base) {
 		handleFocusChange(e) {
 			this.basis = new Date(this.cell2date.get(e.target));
 		}
+		// TODO: Update what today is every so often
 	};
 }
