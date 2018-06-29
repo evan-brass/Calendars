@@ -100,9 +100,17 @@ export default function (base) {
 					dependencies: ['rowsPerCell'],
 					func: function () {
 						return `.cell {
-							grid-column: auto / span 1;
-							grid-row: auto / span ${this.rowsPerCell};
+							grid-column-end: span 1;
+							grid-row-end: span ${this.rowsPerCell};
 						}
+						${
+							// TODO: Find a better way of putting all the cells into their proper locations
+						(new Array(6)).fill('').map((_, row) =>
+							(new Array(7)).fill('').map((_, column) => `.cell:nth-of-type(${row * 7 + column + 1}) {
+								grid-column-start: ${column + 1};
+								grid-row-start: ${row * this.rowsPerCell + 3};
+							}`).join('\n')
+						).join('\n')}
 						:host {
 							grid-template-rows: auto minmax(var(--min-row-height), 1fr) repeat(${6 * this.rowsPerCell}, minmax(var(--min-row-height), 1fr));
 						}`;
