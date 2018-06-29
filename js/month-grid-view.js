@@ -14,7 +14,7 @@ export default function (base) {
 			return {
 				'eventsPerCell': {
 					type: Number,
-					default: 3
+					default: 5
 				},
 				'lang': {
 					type: String,
