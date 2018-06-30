@@ -6,7 +6,7 @@
 	--out-of-month-color: var(--border-color);
 	/* This determines what an empty calendar would look like.
 		Fraction units take care of making the calendar's rows consistent */
-	--min-row-height: 25px;
+	--min-row-height: 1em;
 	--out-of-month-background-color: #eee;
 	--today-accent-color: #a972df;
 	--header-background-color: transparent;
@@ -69,3 +69,15 @@ h1 {
 		margin: 0 0 -1px -1px;
 		z-index: 2;
 	}
+
+.slots {
+	display: contents;
+}
+.slot-container {
+	padding-right: 1px;
+	/* padding: 0 2px 0 1px; */
+	/* background-color: #eee; */
+	/* padding: 1px; */
+	z-index: 5;
+	/* position: relative; */
+}
