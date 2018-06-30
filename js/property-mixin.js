@@ -20,13 +20,15 @@ export default function (base) {
 			var equals = this.compareFunction(definition);
 
 			return function (newVal) {
-				if (!equals(newVal, this[propCacheSym][name])) {
+				let oldVal = this[propCacheSym][name];
+				if (!equals(newVal, oldVal)) {
 					this[propCacheSym][name] = newVal;
 					this.dispatchEvent(new Event(name + '-changed'));
 				}
 			};
 		}
 		revalidate(name, definition) {
+			// Setter and revalidate are almost identical except that one is just handed the new value and the other calls a function to get that new value.
 			let equals = this.compareFunction(definition);
 			return function () {
 				let oldVal = this[propCacheSym][name];
@@ -95,6 +97,7 @@ export default function (base) {
 				});
 			}
 			// Compute all our default properties now that our data properties are defined.
+			// BUG: This doesn't make sure that the computed dependencies of a computed property have already been computed.
 			toCompute.forEach(func => func.call(this), this);
 		}
 		depends(func, dependencies) {

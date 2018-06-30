@@ -170,7 +170,7 @@ export default function (base) {
 
 			// Cell Classes and Dates
 			this.elements.cells = this.shadowRoot.querySelectorAll('.cell');
-			this.depends(this.updateCells.bind(this), ['visibleStart', 'dateExtractor', 'todayMax']);
+			this.depends(this.updateCells.bind(this), ['visibleEnd', 'dateExtractor', 'todayMax']);
 			this.updateCells();
 
 			// Month title in the header
@@ -282,7 +282,7 @@ export default function (base) {
 						while (iterator < this.visibleEnd && iterator < event.end) {
 							const slotName = 'id-' + slotId++;
 							let slotContainer = document.createElement('div');
-							// TODO: Need to focus the correct cell based on events that bubble through to the slot container.  Or just require the event elementto handle the events that it needs.
+							// TODO: Need to focus the correct cell based on events that bubble through to the slot container.  Or just require the event element to handle the events that it needs.
 							slotContainer.className = "slot-container";
 							let slot = document.createElement('slot');
 							slot.setAttribute('name', slotName);
@@ -318,7 +318,7 @@ export default function (base) {
 							}
 
 							// Testing content:
-							slot.innerHTML = "<div>Test</div>";
+							slot.innerHTML = "<div>Slot hasn't been overridden</div>";
 
 							this.elements.slotContainer.appendChild(slotContainer);
 						}
