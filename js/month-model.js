@@ -9,7 +9,7 @@ export default function (base) {
 			super();
 
 			// Mutation Observer to keep track of the event-meta elements as they come and go
-			this.mo = new MutationObserver(this.mutationCallback.bind(this));
+			this.mo = new MutationObserver(this.updateVisibleMeta.bind(this));
 		}
 		connectedCallback() {
 			if (super.connectedCallback) {
@@ -17,13 +17,17 @@ export default function (base) {
 			}
 
 			// Activate our MutationObserver
-			customElements.whenDefined('event-meta').then(() => {
-				this.mo.observe(this, {
-					childList: true,
-					subtree: true
-				});
-				this.eventMetaElements = Array.from(this.querySelectorAll('event-meta'));
-			})
+			this.mo.observe(this, {
+				childList: true,
+				subtree: true
+			});
+			// And register an event handle so that connectors can notify the calendar that they have new (or no longer have) events.
+			this.addEventListener('eventmeta-changed', () => {
+				this.updateVisibleMeta()
+			});
+			// Also make the events meta depend on the visibleEnd
+			this.depends(this.updateVisibleMeta.bind(this), ['visibleEnd']);
+			this.updateVisibleMeta();
 		}
 		disconnectedCallback() {
 			if (super.disconnectedCallback) {
@@ -65,39 +69,9 @@ export default function (base) {
 						return end;
 					}
 				},
-				'eventMetaElements': {
+				'visibleEventsMeta': {
 					type: Array,
 					default: []
-				},
-				'visibleEvents': {
-					type: Array,
-					dependencies: ['eventMetaElements', 'visibleMax'],
-					func: function () {
-						return this.eventMetaElements.filter(el =>
-							(el.end >= this.visibleStart && el.start <= this.visibleEnd)
-						).sort((a, b) => {
-							// NOTE: I believe that there is some redundancy and error in this sorting.  I'll need to play around with it for a while to get something that works most, if not all, of the time.  I just don't have a good enough grasp of the pertinent variables.  This is too complex for me to fully reason out so I'm falling back onto trial and error.
-							// TODO: Build a test event suite to verify that this is actually working in all the ways that I hope it does.
-							const aMultiday = this.multiday(a);
-							const bMultiday = this.multiday(b);
-							if (aMultiday && !bMultiday) {
-								return -1;
-							} else if (!aMultiday && bMultiday) {
-								return 1;
-							} else if (aMultiday && bMultiday) {
-								// Which multiday event should go first
-								return a.start - b.start; // Whichever comes first?
-							} else {
-								if (a.end < b.start) {
-									return -1;
-								} else if (a.start > a.end) {
-									return 1;
-								} else { // They overlap at least some
-									return a.start - b.start;
-								}
-							}
-						});
-					}
 				}
 			};
 		}
@@ -109,11 +83,45 @@ export default function (base) {
 		multiday(x) {
 			return !this.isSameDay(x.start, x.end);
 		}
-		calculateVisibleEvents() {
+		async updateVisibleMeta(e) {
+			// We should only be getting children change events anyway
+			// TODO: Use an actual invalidation scheme here
 
-		}
-		mutationCallback(records, observer) {
-			this.eventMetaElements = Array.from(this.querySelectorAll('event-meta'));
+			// Get all the children of the calendar...
+			let metalist = (await Promise.all(Array.from(this.children)
+				// ... that have a visibleEvents function.
+				.filter(el => (el.visibleEvents &&
+					el.visibleEvents instanceof Function))
+				// Call the asyncronouse visibleEvents function which gives us an array of arrays which we...
+				.map(async el =>
+					await el.visibleEvents(this.visibleStart, this.visibleEnd)
+			)))
+				// ... concatinate into a flattened array and...
+				.reduce((metalist, sublist) => metalist.concat(sublist), [])
+				// ... sort into what our sorting expects.
+				.sort((a, b) => {
+						// NOTE: I believe that there is some redundancy and error in this sorting.  I'll need to play around with it for a while to get something that works most, if not all, of the time.  I just don't have a good enough grasp of the pertinent variables.  This is too complex for me to fully reason out so I'm falling back onto trial and error.
+						// TODO: Build a test event suite to verify that this is actually working in all the ways that I hope it does.
+						const aMultiday = this.multiday(a);
+						const bMultiday = this.multiday(b);
+						if (aMultiday && !bMultiday) {
+							return -1;
+						} else if (!aMultiday && bMultiday) {
+							return 1;
+						} else if (aMultiday && bMultiday) {
+							// Which multiday event should go first
+							return a.start - b.start; // Whichever comes first?
+						} else {
+							if (a.end < b.start) {
+								return -1;
+							} else if (a.start > a.end) {
+								return 1;
+							} else { // They overlap at least some
+								return a.start - b.start;
+							}
+						}
+				});
+			this.visibleEventsMeta = metalist;
 		}
 		*visibleDays() {
 			let i = new Date(this.visibleStart);
@@ -121,9 +129,6 @@ export default function (base) {
 				yield i;
 				i.setDate(i.getDate() + 1);
 			}
-		}
-		*visibleEvents() {
-			// TODO: Need to observe children and yield some sort of metadata object
 		}
 	}
 };

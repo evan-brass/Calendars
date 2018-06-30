@@ -184,7 +184,7 @@ export default function (base) {
 
 			// Place the slots and notify the elements that their slots are available
 			this.elements.slotContainer = this.shadowRoot.querySelector('.slots');
-			this.depends(this.placeSlots.bind(this), ['visibleEvents', 'visibleStart', 'eventsPerCell']);
+			this.depends(this.placeSlots.bind(this), ['visibleEventsMeta', 'visibleStart', 'eventsPerCell']);
 			this.placeSlots();
 
 
@@ -262,12 +262,12 @@ export default function (base) {
 
 			// Map of the event-meta elements to the slots that we're offering them.
 			let offerings = new Map();
-			for (let el of this.eventMetaElements) {
-				offerings.set(el, []);
+			for (let meta of this.visibleEventsMeta) {
+				offerings.set(meta, []);
 			}
 
 			// List of events which still need a home.
-			let workingSet = Array.from(this.visibleEvents);
+			let workingSet = Array.from(this.visibleEventsMeta);
 
 			// Helper Functions
 			const slotColumn = index => index % 7 + 1;

@@ -10,6 +10,14 @@ export default class EventMeta extends PropertyMixin(HTMLElement) {
 
 		this.elements = [];
 	}
+	connectedCallback() {
+		super.connectedCallback();
+
+		// Let our parent calendar know that we're here
+		this.dispatchEvent(new Event('eventmeta-changed', {
+			bubbles: true
+		}));
+	}
 	get start() {
 		return new Date(this.getAttribute('start'));
 	}
@@ -18,6 +26,13 @@ export default class EventMeta extends PropertyMixin(HTMLElement) {
 	}
 	get title() {
 		return this.innerText;
+	}
+	async visibleEvents(begin, end) {
+		if (this.start < end && this.end > begin) {
+			return [this];
+		} else {
+			return [];
+		}
 	}
 	offerSlots(names) {
 		let nameIndex = 0;
