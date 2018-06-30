@@ -141,11 +141,11 @@ export default function (base) {
 			template.innerHTML = `
 				<link rel="stylesheet" type="text/css" href="./css/month-grid-view.css">
 				<style></style>
-				<header>
-					<h1></h1>
+				<header part="header">
+					<h1 part="basis-title"></h1>
 				</header>
 				<div class="day-names">
-					${`<div class="day-name"></div>`.repeat(7)}
+					${`<div class="day-name" part="day-name"></div>`.repeat(7)}
 				</div>
 				<div class="cells">
 					${`<div part="cell" class="cell" tabindex="-1"></div>`.repeat(7 /* columns */ * 6 /* rows */)}
