@@ -95,6 +95,13 @@ export default function (base) {
 						return Intl.DateTimeFormat(this.lang, { 'day': 'numeric' }).format;
 					}
 				},
+				'basisTitleExtractor': {
+					type: Function,
+					dependencies: ['lang'],
+					func: function () {
+						return Intl.DateTimeFormat(this.lang, { 'month': 'long', 'year': 'numeric' }).format;
+					}
+				},
 				'computedStyles': {
 					type: HTMLElement,
 					dependencies: ['rowsPerCell'],
@@ -135,7 +142,7 @@ export default function (base) {
 				<link rel="stylesheet" type="text/css" href="./css/month-grid-view.css">
 				<style></style>
 				<header>
-					<h1><slot name="title"></slot></h1>
+					<h1></h1>
 				</header>
 				<div class="day-names">
 					${`<div class="day-name"></div>`.repeat(7)}
@@ -166,7 +173,10 @@ export default function (base) {
 			this.depends(this.updateCells.bind(this), ['visibleStart', 'dateExtractor', 'todayMax']);
 			this.updateCells();
 
-			// TODO: Update the Month Title in the header
+			// Month title in the header
+			this.elements.basisTitle = this.shadowRoot.querySelector('header h1');
+			this.depends(this.updateBasisTitle.bind(this), ['visibleEnd', 'monthExtractor']);
+			this.updateBasisTitle();
 
 			// Make sure that the basis is focused as long as any element is focused
 			this.depends(this.updateBasisCell.bind(this), ['basis']);
@@ -200,6 +210,9 @@ export default function (base) {
 
 				cell.innerText = this.dateExtractor(day);
 			}
+		}
+		updateBasisTitle() {
+			this.elements.basisTitle.innerText = this.basisTitleExtractor(this.basis);
 		}
 		updateBasisCell() {
 			for (let el of this.elements.cells) {
