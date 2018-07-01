@@ -229,9 +229,7 @@ export default function (base) {
 			// And put our new basis cell into the tab order
 			this.elements.basisCell.tabIndex = '0';
 			// Focus our basis if an element was previously focused
-			if (this.shadowRoot.activeElement != this.elements.basisCell) {
-				
-				// Focus the new basisCell
+			if (this.shadowRoot.activeElement && this.shadowRoot.activeElement != this.elements.basisCell) {
 				this.elements.basisCell.focus();
 			}
 		}
