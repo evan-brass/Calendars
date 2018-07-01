@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<base href="../" />
+	<script type="module" src="js/calendar-basic.js">
+	</script>
+</head>
+<body>
+	<section>
+		<h1>Dark Theme:</h1>
+		<calendar-basic id="cal-1"></calendar-basic>
+		<style>
+			#cal-1 {
+				background-color: #222;
+				--border-color: #444;
+				color: #eee;
+				--out-of-month-background-color: #333;
+				font-family: sans-serif;
+				--today-accent-color: #E76F51;
+			}
+
+				#cal-1::part(header) {
+					background-color: #E76F51;
+					padding: 10px;
+				}
+		</style>
+	</section>
+</body>
+</html>
