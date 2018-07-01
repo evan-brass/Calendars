@@ -359,6 +359,7 @@ export default function (base) {
 			}
 			temp.setDate(temp.getDate() + offset);
 			this.basis = temp;
+			e.preventDefault(); // Stop from scrolling the page (Hopefully it will still scroll the focused element into view)
 		}
 		handleFocusChange(e) {
 			this.basis = new Date(this.cell2date.get(e.target));
