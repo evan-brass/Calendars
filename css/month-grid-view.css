@@ -24,6 +24,18 @@ header {
 	header h1 {
 		margin: 0;
 	}
+	header button {
+		vertical-align: central;
+		background-color: transparent;
+		border: none;
+		font-weight: bold;
+		font-size: 2em;
+		color: #aaa;
+		box-sizing: border-box;
+	}
+	header button:hover {
+		background-color: #eee;
+	}
 
 h1 {
 	margin: 0;
