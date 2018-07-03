@@ -1,15 +1,12 @@
 "use strict";
 
-import { LitElement, html } from 'https://unpkg.com/lit-element/';
+import { LitElement, html } from '../node_modules/@polymer/lit-element/lit-element.js';
 
 import MonthModel from "./month-model.js";
 
 export default class CalendarBasic extends MonthModel(LitElement) {
 	constructor() {
 		super();
-
-		// Create our shadow dom
-		this.attachShadow({ mode: 'open' });
 	}
 	static get properties() {
 		return {
@@ -31,6 +28,7 @@ export default class CalendarBasic extends MonthModel(LitElement) {
 				},
 				reflectToAttribute: true
 			},
+
 			eventsPerCell: {
 				type: Number,
 				value: 5
@@ -39,6 +37,7 @@ export default class CalendarBasic extends MonthModel(LitElement) {
 				type: Number,
 				computed: 'calcRowsPerCell(eventsPerCell)',
 			},
+
 			today: {
 				type: Date,
 				value: new Date()
@@ -51,6 +50,7 @@ export default class CalendarBasic extends MonthModel(LitElement) {
 				type: Date,
 				computed: 'calcTodayMax(todayMin)'
 			},
+
 			weekdayNameStyle: {
 				type: String,
 				value: 'long'
@@ -59,14 +59,17 @@ export default class CalendarBasic extends MonthModel(LitElement) {
 				type: Array,
 				computed: 'calcWeekdayNames(lang, weekdayNameStyle)'
 			},
+
 			dateExtractor: {
 				type: Function,
 				computed: 'calcDateExtractor(lang)'
 			},
+
 			basisTitleExtractor: {
 				type: Function,
 				computed: 'calcBasisTitleExtractor(lang)'
 			},
+
 			// This is will format each cells date into what will be its aria-label attribute
 			ariaLabelFormatter: {
 				type: Function,
@@ -83,14 +86,14 @@ export default class CalendarBasic extends MonthModel(LitElement) {
 		todayMin.setHours(0, 0, 0, 0);
 		return todayMin;
 	}
+	calcRowsPerCell(eventsPerCell) {
+		return eventsPerCell + 1;
+	}
 	calcTodayMax(todayMin) {
 		let todayMax = new Date(todayMin);
 		todayMax.setDate(todayMax.getDate() + 1);
 		todayMax.setHours(0, 0, 0, -1);
 		return todayMax;
-	}
-	calcRowsPerCell(eventsPerCell) {
-		return eventsPerCell + 1;
 	}
 	calcWeekdayNames(lang, weekdayNameStyle) {
 		// Create a date formatter that will extract the weekday name, in the langauge with the style
@@ -121,92 +124,52 @@ export default class CalendarBasic extends MonthModel(LitElement) {
 			'month': 'long'
 		});
 		return function (date) {
+			// TODO: Include the number of events that that cell has.
 			return format(date);
 		};
 	}
 	calcComputedStyles(rowsPerCell) {
-		return 
-`.cell {
-	grid-column-end: span 1;
-	grid-row-end: span ${this.rowsPerCell};
-}
-${
-// TODO: Find a better way of putting all the cells into their proper locations
-// TODO: Remove hacky iteration
-(new Array(6)).fill('').map((_, row) =>
-	(new Array(7)).fill('').map((_, column) => `.cell:nth-of-type(${row * 7 + column + 1}) {
-				grid-column-start: ${column + 1};
-				grid-row-start: ${row * this.rowsPerCell + 3};
-			}`).join('\n')
-).join('\n')}
-:host {
-	grid-template-rows: auto minmax(var(--min-row-height), 1fr) repeat(${6 * this.rowsPerCell}, minmax(var(--min-row-height), 1fr));
-}`;
+		return `
+				.cell {
+					grid-column-end: span 1;
+					grid-row-end: span ${this.rowsPerCell};
+				}
+				${// TODO: Find a better way of putting all the cells into their proper locations
+		// TODO: Remove hacky iteration
+		(new Array(6)).fill('').map((_, row) =>
+			(new Array(7)).fill('').map((_, column) => `.cell:nth-of-type(${row * 7 + column + 1}) {
+						grid-column-start: ${column + 1};
+						grid-row-start: ${row * this.rowsPerCell + 3};
+					}`).join('\n')
+		).join('\n')}
+				:host {
+					grid-template-rows: auto minmax(var(--min-row-height), 1fr) repeat(${6 * rowsPerCell}, minmax(var(--min-row-height), 1fr));
+				}`;
 	}
 
-	_render({computedStyles}) {
+	_render({computedStyles, weekdayNames}) {
 		return html`
-<link rel="stylesheet" type="text/css" href="./css/month-grid-view.css">
-<style>${computedStyles}</style>
-<header part="header">
-	<button aria-hidden="true" id="prev-month">&lt;</button>
-	<button aria-hidden="true" id="next-month">&gt;</button>
-	<h1 part="basis-title"></h1>
-</header>
-<div class="day-names" aria-role="presentation">
-	${`<div class="day-name" part="day-name"></div>`.repeat(7)}
-</div>
-<div class="cells" aria-role="grid">
-	${`<div part="cell" class="cell" tabindex="-1" aria-role="gridcell"></div>`.repeat(7 /* columns */ * 6 /* rows */)}
-</div>
-<div class="slots"></div>
-`;
-	}
-
-	//connectedCallback() {
-	//	if (super.connectedCallback) {
-	//		super.connectedCallback();
-	//	}
-
-	//	this.draw();
-	//	this.hook();
-	//}
-
-	// Drawing Functions:
-	draw() {
-		const template = document.createElement('template');
-		template.innerHTML = `
 			<link rel="stylesheet" type="text/css" href="./css/month-grid-view.css">
-			<style></style>
+			<style>${computedStyles || ""}</style>
 			<header part="header">
-				${/* The aria-hidden="true" below is a cop out.  I'm trying to keep eveything perfectly translated and I would have to hard code labels like "previous month" and "next month".  The way that I have it limits the ways that blind users can change the basis month (they either need to use the keyboard or (when I implement it) the <input type="month" /> that will replace the basis title.  That doesn't seem too bad? Also, I know that I will need to have other translated portions later (a label for the cells indicating how many events or on that day) but I've been avoiding that as well. */ ''}
 				<button aria-hidden="true" id="prev-month">&lt;</button>
 				<button aria-hidden="true" id="next-month">&gt;</button>
 				<h1 part="basis-title"></h1>
 			</header>
 			<div class="day-names" aria-role="presentation">
-				${`<div class="day-name" part="day-name"></div>`.repeat(7)}
+				${(weekdayNames || []).map(name =>
+					html`<div class="day-name" part="day-name">${name}</div>`
+				)}
 			</div>
 			<div class="cells" aria-role="grid">
-				${`<div part="cell" class="cell" tabindex="-1" aria-role="gridcell"></div>`.repeat(7 /* columns */ * 6 /* rows */)}
+				${""}
+				${html`<div part="cell" class="cell" tabindex="-1" aria-role="gridcell"></div>`.repeat(7 /* columns */ * 6 /* rows */)}
 			</div>
 			<div class="slots"></div>
-		`;
-		this.shadowRoot.appendChild(document.importNode(template.content, true));
+			`;
 	}
 	// Specify our update logic and update everything for the first time.
 	hook() {
-		this.elements = {};
-
-		// Computed Styles
-		this.elements.computedStyles = this.shadowRoot.querySelector('style');
-		this.depends(this.updateComputedStyles.bind(this), ['computedStyles']);
-		this.updateComputedStyles();
-
-		// Weekday Names
-		this.elements.weekdayNames = this.shadowRoot.querySelectorAll('.day-name');
-		this.depends(this.updateWeekdayNames.bind(this), ['weekdayNames']);
-		this.updateWeekdayNames();
 
 		// Cell Classes and Dates
 		this.elements.cells = this.shadowRoot.querySelectorAll('.cell');
@@ -246,11 +209,6 @@ ${
 	}
 	updateComputedStyles() {
 		this.elements.computedStyles.innerHTML = this.computedStyles;
-	}
-	updateWeekdayNames() {
-		this.weekdayNames.forEach((name, i) => {
-			this.elements.weekdayNames[i].innerText = name;
-		});
 	}
 	updateCells() {
 		let i = 0;
