@@ -1,6 +1,8 @@
 "use strict";
 
-import MonthModel from "./month-model.js";
+import { html, render } from 'https://unpkg.com/lit-html';
+
+import MonthModel from './month-model.js';
 
 export default function (base) {
 	return class MonthGridView extends MonthModel(base) {
@@ -39,8 +41,8 @@ export default function (base) {
 				'todayMin': {
 					type: Date,
 					dependencies: ['today'],
-					func: function () {
-						let todayMin = new Date(this.today);
+					func: function (today) {
+						let todayMin = new Date(today);
 						todayMin.setHours(0, 0, 0, 0);
 						return todayMin;
 					}
@@ -48,8 +50,8 @@ export default function (base) {
 				'todayMax': {
 					type: Date,
 					dependencies: ['todayMin'],
-					func: function () {
-						let todayMax = new Date(this.todayMin);
+					func: function (todayMin) {
+						let todayMax = new Date(todayMin);
 						todayMax.setDate(todayMax.getDate() + 1);
 						todayMax.setHours(0, 0, 0, -1);
 						return todayMax;
@@ -62,24 +64,23 @@ export default function (base) {
 				'rowsPerCell': {
 					type: Number,
 					dependencies: ['eventsPerCell'],
-					func: function () {
+					func: function (eventsPerCell) {
 						// This is the total number of rows that appear in each cell.
 						// The extra row per cell is for the date that appears at the top of the cell.
-						return this.eventsPerCell + 1;
+						return eventsPerCell + 1;
 					}
 				},
 				'weekdayNames': {
 					type: Array,
 					dependencies: ['lang', 'weekdayNameStyle'],
-					func: function () {
+					func: function (lang, weekdayNameStyle) {
 						// Create a date formatter that will extract the weekday name, in the langauge with the style
-						let weekdayNameExtractor = Intl.DateTimeFormat(this.lang, { 'weekday': this.weekdayNameStyle }).format;
+						let weekdayNameExtractor = Intl.DateTimeFormat(lang, { 'weekday': weekdayNameStyle }).format;
 
 						let d = new Date();
 						// Track to a date that is the first day of the week
 						d.setDate(d.getDate() - d.getDay());
 						let names = [];
-						// Iterate through a week's worth of days
 						// Iterate through a week's worth of days
 						for (let i = 0; i < 7; ++i) {
 							names.push(weekdayNameExtractor(d));
@@ -91,37 +92,103 @@ export default function (base) {
 				'dateExtractor': {
 					type: Function,
 					dependencies: ['lang'],
-					func: function () {
-						return Intl.DateTimeFormat(this.lang, { 'day': 'numeric' }).format;
+					func: function (lang) {
+						return Intl.DateTimeFormat(lang, { 'day': 'numeric' }).format;
 					}
 				},
 				'basisTitleExtractor': {
 					type: Function,
 					dependencies: ['lang'],
-					func: function () {
-						return Intl.DateTimeFormat(this.lang, { 'month': 'long', 'year': 'numeric' }).format;
+					func: function (lang) {
+						return Intl.DateTimeFormat(lang, { 'month': 'long', 'year': 'numeric' }).format;
 					}
 				},
 				'computedStyles': {
-					type: HTMLElement,
+					type: String,
 					dependencies: ['rowsPerCell'],
-					func: function () {
+					func: function (rowsPerCell) {
 						return `.cell {
 							grid-column-end: span 1;
-							grid-row-end: span ${this.rowsPerCell};
+							grid-row-end: span ${rowsPerCell};
 						}
 						${
 							// TODO: Find a better way of putting all the cells into their proper locations
 						(new Array(6)).fill('').map((_, row) =>
 							(new Array(7)).fill('').map((_, column) => `.cell:nth-of-type(${row * 7 + column + 1}) {
 								grid-column-start: ${column + 1};
-								grid-row-start: ${row * this.rowsPerCell + 3};
+								grid-row-start: ${row * rowsPerCell + 3};
 							}`).join('\n')
 						).join('\n')}
 						:host {
-							grid-template-rows: auto minmax(var(--min-row-height), 1fr) repeat(${6 * this.rowsPerCell}, minmax(var(--min-row-height), 1fr));
+							grid-template-rows: auto minmax(var(--min-row-height), 1fr) repeat(${6 * rowsPerCell}, minmax(var(--min-row-height), 1fr));
 						}`;
 					}
+				},
+				'computedStylesElement': {
+					type: HTMLElement,
+					dependencies: ['computedStyles'],
+					func: (function () {
+						let styleEl = document.createElement('style');
+
+						return function (computedStyles) {
+							styleEl.innerHTML = computedStyles;
+
+							return styleEl;
+						};
+					})()
+				},
+				'basisTitleElement': {
+					type: HTMLElement,
+					dependencies: ['basisTitleExtractor', 'basis'],
+					func: (function () {
+						// Closure so that we can hold a reference to our title element and can redraw later.
+						let titleEl = document.createElement('h1');
+						titleEl.setAttribute('part', 'basis-title');
+
+						return function (basisTitleExtractor, basis) {
+							titleEl.innerText = basisTitleExtractor(basis);
+
+							return titleEl;
+						};
+					})()
+				},
+				'weekdayTitlesElement': {
+					type: HTMLElement,
+					dependencies: ['weekdayNames'],
+					func: (function () {
+						let titlesEl = document.createElement('div');
+						titlesEl.className = 'day-names';
+						titlesEl.setAttribute('part', 'day-names');
+						
+						return function (weekdayNames) {
+							// TODO: Use one of those directive thingys to reuse the elements
+							render(html`${weekdayNames.map(name => html`
+								<div class="day-name" part="day-name" aria-role="gridcell">${name}</div>`)}`, titlesEl);
+
+							return titlesEl;
+						};
+					})()
+				},
+				'cellsElement': {
+					type: HTMLElement,
+					dependencies: ['visibleDays', 'dateExtractor', 'today'],
+					func: (function () {
+						let cellsEl = document.createElement('div');
+						cellsEl.className = 'cells';
+
+						return function (visibleDays, dateExtractor, today) {
+							render(html`${(function* () {
+									// TODO: Reuse the cell elements
+									for (let date of visibleDays()) {
+										yield html`<div part="cell" class="${this.dateClasses(date)}" tabindex="-1">
+											${this.dateExtractor(date)}
+										</div>`;
+									}
+								}).call(this)}`, cellsEl);
+
+							return cellsEl;
+						}
+					})()
 				}
 			};
 		}
@@ -131,52 +198,21 @@ export default function (base) {
 				super.connectedCallback();
 			}
 
-			this.draw();
-			this.hook();
-		}
-
-		// Drawing Functions:
-		draw() {
-			const template = document.createElement('template');
-			template.innerHTML = `
-				<link rel="stylesheet" type="text/css" href="./css/month-grid-view.css">
-				<style></style>
+			render(html`<link rel="stylesheet" type="text/css" href="./css/month-grid-view.css">
+				${this.computedStylesElement}
 				<header part="header">
-					<h1 part="basis-title"></h1>
+					${this.basisTitleElement}
 				</header>
-				<div class="day-names" aria-role="grid">
-					${`<div class="day-name" part="day-name" aria-role="gridcell"></div>`.repeat(7)}
-				</div>
-				<div class="cells">
-					${`<div part="cell" class="cell" tabindex="-1"></div>`.repeat(7 /* columns */ * 6 /* rows */)}
-				</div>
-				<div class="slots"></div>
-			`;
-			this.shadowRoot.appendChild(document.importNode(template.content, true));
+				${this.weekdayTitlesElement}
+				${this.cellsElement}
+				<div class="slots"></div>`, this.shadowRoot);
+
+			// Start listening to the events we need
+			this.shadowRoot.querySelector('.cells').addEventListener('keydown', this.handleArrowNavigation.bind(this));
+			this.shadowRoot.querySelector('.cells').addEventListener('focusin', this.handleFocusChange.bind(this));
 		}
 		// Specify our update logic and update everything for the first time.
 		hook() {
-			this.elements = {};
-
-			// Computed Styles
-			this.elements.computedStyles = this.shadowRoot.querySelector('style');
-			this.depends(this.updateComputedStyles.bind(this), ['computedStyles']);
-			this.updateComputedStyles();
-
-			// Weekday Names
-			this.elements.weekdayNames = this.shadowRoot.querySelectorAll('.day-name');
-			this.depends(this.updateWeekdayNames.bind(this), ['weekdayNames']);
-			this.updateWeekdayNames();
-
-			// Cell Classes and Dates
-			this.elements.cells = this.shadowRoot.querySelectorAll('.cell');
-			this.depends(this.updateCells.bind(this), ['visibleEnd', 'dateExtractor', 'todayMax']);
-			this.updateCells();
-
-			// Month title in the header
-			this.elements.basisTitle = this.shadowRoot.querySelector('header h1');
-			this.depends(this.updateBasisTitle.bind(this), ['visibleEnd', 'monthExtractor']);
-			this.updateBasisTitle();
 
 			// Make sure that the basis is focused as long as any element is focused
 			this.depends(this.updateBasisCell.bind(this), ['basis']);
@@ -186,33 +222,6 @@ export default function (base) {
 			this.elements.slotContainer = this.shadowRoot.querySelector('.slots');
 			this.depends(this.placeSlots.bind(this), ['visibleEventsMeta', 'visibleStart', 'eventsPerCell']);
 			this.placeSlots();
-
-
-			// Start listening to the events we need
-			this.shadowRoot.querySelector('.cells').addEventListener('keydown', this.handleArrowNavigation.bind(this));
-			this.shadowRoot.querySelector('.cells').addEventListener('focusin', this.handleFocusChange.bind(this));
-		}
-		updateComputedStyles() {
-			this.elements.computedStyles.innerHTML = this.computedStyles;
-		}
-		updateWeekdayNames() {
-			this.weekdayNames.forEach((name, i) => {
-				this.elements.weekdayNames[i].innerText = name;
-			});
-		}
-		updateCells() {
-			let i = 0;
-			this.cell2date = new Map();
-			for (let day of this.visibleDays()) {
-				const cell = this.elements.cells[i++]
-				this.cell2date.set(cell, new Date(day));
-				cell.className = this.dateClasses(day);
-
-				cell.innerText = this.dateExtractor(day);
-			}
-		}
-		updateBasisTitle() {
-			this.elements.basisTitle.innerText = this.basisTitleExtractor(this.basis);
 		}
 		updateBasisCell() {
 			for (let el of this.elements.cells) {

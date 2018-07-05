@@ -26,7 +26,7 @@ export default function (base) {
 				this.updateVisibleMeta()
 			});
 			// Also make the events meta depend on the visibleEnd
-			this.depends(this.updateVisibleMeta.bind(this), ['visibleEnd']);
+//			this.depends(this.updateVisibleMeta.bind(this), ['visibleEnd']);
 			this.updateVisibleMeta();
 		}
 		disconnectedCallback() {
@@ -45,8 +45,8 @@ export default function (base) {
 				'visibleStart': {
 					type: Date,
 					dependencies: ['basis'],
-					func: function () {
-						let visibleStart = new Date(this.basis);
+					func: function (basis) {
+						let visibleStart = new Date(basis);
 						// Track to the first day of the month
 						visibleStart.setDate(1);
 						// Move to the first day of the week preceeding the first day of the month
@@ -59,14 +59,27 @@ export default function (base) {
 				'visibleEnd': {
 					type: Date,
 					dependencies: ['visibleStart'],
-					func: function () {
+					func: function (visibleStart) {
 						// Copy the visible start
-						let end = new Date(this.visibleStart);
+						let end = new Date(visibleStart);
 						// Move to one past the last visible date
 						end.setDate(end.getDate() + (7 * 6));
 						// Get the last milisecond of the last visible date
 						end.setHours(0, 0, 0, -1);
 						return end;
+					}
+				},
+				'visibleDays': {
+					type: Function,
+					dependencies: ['visibleStart', 'visibleEnd'],
+					func: function (visibleStart, visibleEnd) {
+						return function* () {
+							let i = new Date(visibleStart);
+							while (i < visibleEnd) {
+								yield new Date(i);
+								i.setDate(i.getDate() + 1);
+							}
+						}
 					}
 				},
 				'visibleEventsMeta': {
@@ -122,13 +135,6 @@ export default function (base) {
 						}
 				});
 			this.visibleEventsMeta = metalist;
-		}
-		*visibleDays() {
-			let i = new Date(this.visibleStart);
-			while (i < this.visibleEnd) {
-				yield i;
-				i.setDate(i.getDate() + 1);
-			}
 		}
 	}
 };
