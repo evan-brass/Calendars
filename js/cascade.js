@@ -27,7 +27,7 @@ function compareFunction(definition) {
 }
 
 export default function (base) {
-	return class PropertyManager extends base {
+	return class Cascade extends base {
 		constructor() {
 			super();
 

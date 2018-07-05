@@ -1,6 +1,6 @@
 "use strict";
 
-import PropertyMixin from "./property-mixin.js";
+import PropertyMixin from "./cascade.js";
 
 import EventBasic from "./event-basic.js";
 
