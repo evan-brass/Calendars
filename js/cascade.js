@@ -1,14 +1,23 @@
 "use strict";
-
-const propSym = Symbol("Cascade: Cached property Values and local metadata");
+// Replaced by layers
+//const graphSym = Symbol("Cascade: Access the graph of this model.  Used to extend a model.");
 const propagationSym = Symbol("Cascade: Property update propagation list");
 
-function compareFunction(definition) {
-	if (definition.compare) {
-		return definition.compare;
-	} else if (definition.type == Date) {
+// Kinds of property definitions
+const Kind = {
+	Fundamental: 0,
+	Computed: 1,
+	User: 2
+//	Needed: 3
+};
+
+// Has some basic comparison functions which we can use to check if a property's value has changed.
+function compareFunction(def) {
+	if (def.compare) {
+		return def.compare;
+	} else if (def.type == Date) {
 		return (A, B) => (A.getTime() == B.getTime());
-	} else if (definition.type == Array || definition.type == HTMLCollection) {
+	} else if (def.type == Array || def.type == HTMLCollection) {
 		return function (A, B) {
 			if (A.length == B.length) {
 				for (let i = 0; i < A.length; ++i) {
@@ -26,10 +35,118 @@ function compareFunction(definition) {
 	// TODO: Handle other datatypes
 }
 
+// 
+function revalidateFunc(def) {
+	// Insert a *sorted* dependents array into our propagation 
+	function addDependents(propagation, dependents) {
+		let i = 0;
+
+		dependency:
+		for (let dep of dependents) {
+			while (i < propagation.length) {
+				if (propagation[i] === dep) {
+					break dependency;
+				}
+				if (propagation[i].depth > dep.depth) {
+					--i;
+					break;
+				}
+			}
+			if (i == propagation.length) {
+				propagation.push(dep);
+			} else {
+				propagation.splice(i, 0, dep);
+			}
+		}
+	}
+
+	// Consume the propagation list while items may be added to it.
+	function* propagationIterator(propagation) {
+		while (propagation.length != 0) {
+			yield propagation.shift();
+		}
+	}
+
+	// Figure out how to check if our cached value is different from the new value
+	let equals = compareFunction(def);
+	const isComputed = def.kind === Kind.Computed;
+
+	return function (newVal) {
+
+		// Handy references:
+		const propagation = this[propagationSym];
+
+		let oldVal = this._cache[def.name];
+
+		// Get an update version of a computed value
+		// TODO: Extract all of this logic into multiple functions so that it isn't performed for all properties.  After all, the whole point of using a function which returns a function is that only the work that needs to be done each time is actually done.
+		if (isComputed) {
+			let inputs = def.dependencies.map(name => this[name]);
+			if (oldVal === undefined) {
+				// Cal func if we've never computed this property before.
+				newVal = def.func.apply(this, inputs);
+			} else {
+				// Otherwise patch the previous value given the new information.
+				// While func should be a pure function, patch is not necessarily.  For that reason we can store (locally in a closure of the patch function) the previous values that func/patch was given or do whatever we want.  Just be careful/considerate.
+				newVal = def.patch.apply(this, [oldVal].concat(inputs));
+			}
+		}
+
+		// Has the property's value actually changed?
+		if (!equals(newVal, oldVal)) {
+			// Update the cache
+			this._cache.set(def, newVal);
+
+			// Add our dependents
+			addDependents(propagation, def.dependents);
+
+			// Update the properties that need updating
+			for (let prop of propagationIterator(propagation)) {
+				switch (prop.kind) {
+					case Kind.Fundamental:
+						throw new Error("Attempted to update a fundamental property: ");
+
+					case Kind.Computed:
+						prop.revalidate.call(this);
+						break;
+
+					/*
+					case Kinds.Needed:
+						throw new Error("Attempted to update a needed property: Cascade should have given you an error earlier.");
+					*/
+
+					case Kinds.User:
+						// TODO: Re-call user with new values
+						break;
+
+					default:
+						throw new Error("Unrecognized Property Kind: This is likely a bug in Cascade.");
+				}
+			}
+		};
+	}
+}
+
+function determineKind(def) {
+	if (def.type === undefined || def.name === undefined) {
+		throw new Error("Definition");
+	} else if (def.value !== undefined) {
+		if (def.func !== undefined || def.patch !== undefined) {
+			throw new Error("A Fundamental Property must not have a func or a patch method");
+		}
+		return Kind.Fundamental;
+	} else if (def.func !== undefined) {
+		if (def.value !== undefined || def.readOnly !== undefined) {
+			throw new Error("A Computed Property must not have a value or a readOnly property");
+		}
+		return Kind.Computed;
+	} else {
+		throw new Error("Unknown kind");
+	}
+}
+
 export default function (propertyDefinitions, base = Object) {
-	// Fundamental properties have their properties calculated at constructor call time.  That means that it's not a good spot for things that need DOM access.
-	// Entrypoints into the dependency graph
-	var fundamentals = [];
+	// Fundamental (depth 0) properties have their properties calculated at constructor call time.  That means that it's not a good spot for things that need DOM access.
 
 	// Class that we will be extending
 	class Model extends base {
@@ -41,27 +158,41 @@ export default function (propertyDefinitions, base = Object) {
 				this[propagationSym] = [];
 			}
 
+			// TODO: Replace with module level symbols?
+			this._cache = new Map();
+			this._users = new Map();
+
 			// Update the values for all of our fundamental properties
-			for (let prop of fundamentals) {
+			for (let prop of this.layers[0]) {
 				// Put our default value into the cache
 				// TODO: Not sure that this is going to be prop.cache or this[propCacheSym]
-				prop.cache = prop.value instanceof Function ?
+				this._cache.set(prop, prop.value instanceof Function ?
 					prop.value.call(this) :
-					prop.value;
+					prop.value);
 			}
 		}
-	};
+		use(deps, func) {
+			// TODO: Implement
+		}
+	}
 
 	// Construct the dependency/propagation graph
 	let propWorkingSet = Object.keys(propertyDefinitions);
 
 	// TODO: Check for circular dependencies and give an error
 
-	// TODO: Bind computed properties' funcs with their dependencies
+	// TODO: Check to make sure that overriding properties properly match the definition of what they're overriding.
 
-	// Copy the dependencies into our workDeps and change from names to object references
+	// Copy the dependencies into our workDeps and set the name property of all the definitions
 	for (let name of propWorkingSet) {
 		let prop = propertyDefinitions[name];
+
+		// Set the name property (Used to override properties)
+		prop.name = name;
+
+		// determine the property's kind
+		prop.kind = determineKind(prop);
+
 		// Copy our array
 		if (!(prop.dependencies instanceof Array)) {
 			prop.dependencies = [];
@@ -69,11 +200,19 @@ export default function (propertyDefinitions, base = Object) {
 		prop.workDeps = Array.from(prop.dependencies);
 	}
 
+	// Define the layers:
+	Model.prototype.layers = [];
+	const layers = Model.prototype.layers;
+	Model.prototype.depths = new Map();
+	const depths = Model.prototype.depths;
+
 	// Depth helps sort the updating of properties removing double updates
 	let depth = 0;
 	while (propWorkingSet.length > 0) {
-		// The properties of this depth that we need to remove (I have to remove them at the end of a depth layer so that we don't accidentally add elements into a layer that it doesn't belong to)
-		let toRemove = [];
+
+		// Create a new layer
+		const layer = new Set();
+		layers[depth] = layer;
 
 		// Find all the properties where its dependencies are already defined
 		for (let i = 0; i < propWorkingSet.length;) {
@@ -84,46 +223,37 @@ export default function (propertyDefinitions, base = Object) {
 			// Is this property one whos dependencies (if any) have already been added
 			if (def.workDeps.length == 0) {
 
-				// TODO: Need to calculate default values when our model's constructor is called, not while we are constucting the model.
+				// Add the definition to the layer
+				layer.add(def);
+
 				let setter;
-				if (def.value !== undefined) {
-					// Add this property to the fundamentals (TODO: Fundamental properties are by denfinition depth 0, so might want to check that later).
-					fundamentals.push(def);
-
-					// This is a regular property.  Give it a setter.
-					setter = revalidateFunc(def);
-				} else {
-					// Since all our dependencies are already in, we can safely compute this property
-					def.cache = def.func();
-					def.revalidate = revalidateFunc(def);
+				switch (def.kind) {
+					case Kind.Fundamental:
+						// Give it a setter.
+						setter = revalidateFunc(def);
+						break;
+					case Kind.Computed:
+						def.revalidate = revalidateFunc(def);
+						// TODO: Allow setters for computed properties?
+						break;
+					default:
+						throw new Error("Blah...");
 				}
-
-				/* TODO: Need to use our setters and getters for Cascade Views, not for models though
-				// If someone's already set properties on our element, remove them so that we can use our setter
-				if (this[name]) {
-					def.default = this[name];
-					delete this[name];
-				}
-				*/
-
-				// The dependents arrays are being populated in passes so the properties should be sorted by dependency depth automatically.
-
-				// This property has been added to the graph and can be removed from the working set
-				toRemove.push(name);
 
 				// Actually define the property
 				Object.defineProperty(Model.prototype, name, {
 					get: function () {
-						return def.cache;
+						return this._cache.get(def);
 					},
 					set: setter
 				});
 				def.dependents = [];
-				def.depth = depth;
+				depths.set(def, depth);
 
 				// Remove this property from our working set
 				propWorkingSet.splice(i, 1);
-				// Splicing will shift everything forward so we should continue with the same i value
+
+				// Splicing will shift everything down (in index position) so we should continue with the same index
 			} else {
 				++i;
 			}
@@ -131,13 +261,14 @@ export default function (propertyDefinitions, base = Object) {
 
 		// Remove the properties that we added in this pass from the dependencies of other properties and add those properties as dependents
 		for (let key of propWorkingSet) {
+			const 
 			if (propertyDefinitions[key].dependencies) {
-				for (let old of toRemove) {
+				for (let old of layer) {
 					// If the property had the added property as a dependency...
-					let index = propertyDefinitions[key].workDeps.indexOf(old);
+					let index = propertyDefinitions[key].workDeps.indexOf(old.name);
 					if (index != -1) {
 						// ...add the property as a dependent of the added property and...
-						propertyDefinitions[old].dependents.push(propertyDefinitions[key] );
+						old.dependents.push(propertyDefinitions[key] );
 						// ...remove the added property
 						propertyDefinitions[key].workDeps.splice(index, 1);
 					}
@@ -148,45 +279,8 @@ export default function (propertyDefinitions, base = Object) {
 		++depth;
 	}
 
+	console.log(propertyDefinitions);
+
+	// Return the model we've made
 	return Model;
-
-
-	// TODO: Clearer control flow for revalidation
-	function revalidateFunc(definition) {
-		// Figure out how to check if our cached value is different from the new value
-		let equals = compareFunction(definition);
-
-		return function (newVal = definition.func.apply(this, definition.dependencies.map(name => this[name]))) {
-			// Handy references:
-			const propagation = this[propagationSym];
-
-			let oldVal = definition.cache;
-
-			if (!equals(newVal, oldVal)) {
-				// Update the cache
-				definition.cache = newVal;
-
-				// TODO: BEGIN Optimize this!
-				// Add our dependents to the propagation list which are not already there
-				for (let dependent of definition.dependents) {
-					// TODO: Don't use indexOf.  We only need to check up till one after our depth is reached, then we can insert our new dependent into the propagations.  This is because the propagations will always be sorted and this will also keep the list sorted meaning that we wouldn't need to sort the propagations after pushing the new one.
-					let index = propagation.indexOf(dependent);
-					if (index == -1) {
-						propagation.push(dependent);
-					}
-				}
-
-				// Sort the list of properties that need to be updated by depth so that we never double update a property
-				propagation.sort((A, B) =>
-					A.depth - B.depth);
-				// END Optimize this!
-
-				// Update the properties that need updating
-				while (propagation.length != 0) {
-					let needsUpdate = propagation.shift();
-					needsUpdate.revalidate.call(this);
-				}
-			}
-		};
-	}
 }
