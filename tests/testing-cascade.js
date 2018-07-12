@@ -99,6 +99,20 @@ document.body.appendChild(visualize(cal));
 
 function visualize(instance) {
 	let root = document.createElement('div');
+
+	function item(def) {
+		return `<div class="item 
+				${def.kind == 0 ? 'fundamental' : ''}
+				${def.kind == 1 ? 'computed' : ''}
+				${def.kind == 2 ? 'user' : ''}
+				">
+				<b>${def.name}(${instance.depths.get(def)})</b><br>
+				${def.kind != 2 ? `
+					Users: ${instance._userCount.get(def)}<br>
+					Dependents: ${def.dependents.map(def => def.kind !== 2 ? def.name : 'A user').join(', ')}<br>` :
+				''}
+			</div>`;
+	}
 	root.innerHTML = `
 		<style>
 			.row {
@@ -110,19 +124,16 @@ function visualize(instance) {
 				padding: 1em;
 				margin: 1em;
 			}
+			.computed { border-color: rebeccapurple; }
+			.fundamental { border-color: red; }
+			.user { border-color: blue; }
 		</style>
 		${instance.layers.map(layer =>
 			`<div class="row properties">
-			${Array.from(layer.values()).map(def => 
-			`<div class="item">
-				<b>${def.name}(${def.depth})</b><br>
-				Users: ${instance._userCount.get(def)}<br>
-				Dependents: ${def.dependents.map(def => def.name).join()}<br>
-			</div>`).join('')}
+			${Array.from(layer.values()).map(def => item(def)).join('')}
 		</div>`).join('')}
 		<div class="row users">
-			${Array.from(instance.users.values()).map(def =>
-				`<div class="item">${def}</div>`).join('')}
+			${Array.from(instance.users.values()).map(def => item(def)).join('')}
 		</div>
 `;
 	return root;

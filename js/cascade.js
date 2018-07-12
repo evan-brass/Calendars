@@ -46,7 +46,7 @@ function addDependents(dependents) {
 			if (propagation[i] === dep) {
 				break dependency;
 			}
-			if (this.depths.get(propagation[i]) > this.depths.get(dep).depth) {
+			if (this.depths.get(propagation[i]) > this.depths.get(dep)) {
 				--i;
 				break;
 			}
@@ -65,6 +65,9 @@ function* propagationIterator(propagation) {
 	while (propagation.length != 0) {
 		let toUpdate = propagation.shift();
 		// TODO: May want to do this check before inserting the dependent (rather than before yielding it).  That might be faster.
+		if (toUpdate.kind == Kind.User) {
+			yield toUpdate;
+		}
 		if (this._userCount.get(toUpdate)) {
 			// Has at least one user
 			yield toUpdate;
@@ -90,7 +93,7 @@ function propagateUpdates() {
 				throw new Error("Attempted to update a needed property: Cascade should have given you an error earlier.");
 			*/
 
-			case Kinds.User:
+			case Kind.User:
 				prop.func.call(undefined, prop.dependencies.map(name => this[name]));
 				break;
 
@@ -107,32 +110,38 @@ function revalidateFunc(def) {
 	let equals = compareFunction(def);
 
 	// TODO: This section has a fair amount of redundancy.  Can higher order functions save it?
+	function propagate(func) {
+		return function (...pars) {
+			func.call(this, ...pars);
+
+			propagateUpdates.call(this);
+		}
+	}
+	function checkCached(func) {
+		return function (...pars) {
+			let oldVal = this._cache.get(def);
+
+			let newVal = func.call(this, ...pars);
+
+			// Has the property's value actually changed?
+			if (!equals(newVal, oldVal)) {
+				// Update the cache
+				this._cache.set(def, newVal);
+
+				// Add our dependents
+				addDependents.call(this, def.dependents);
+			}
+		}
+	}
 
 	// Determine what revalidation function to choose.
 	switch (def.kind) {
 		case Kind.Fundamental:
-			return function (newVal) {
-				let oldVal = this._cache.get(def);
-				const propagation = this[propagationSym];
-
-				// Has the property's value actually changed?
-				if (!equals(newVal, oldVal)) {
-					// Update the cache
-					this._cache.set(def, newVal);
-
-					// Add our dependents
-					addDependents(def.dependents);
-				}
-
-				// Update the properties that need updating.  This only needs to happen on fundamental properties because the are the start of the cascade of changes.  Only one revalidate function needs to be propagating changes so it must be the fundamental properties.
-				propagateUpdates.call(this, propagation);
-			};
+			return propagate(checkCached(newVal => newVal));
 		case Kind.Computed:
 			if (def.patch !== undefined) {
-				return function () {
+				return checkCached(function () {
 					let oldVal = this._cache.get(def);
-					const propagation = this[propagationSym];
-					let newVal;
 
 					let inputs = def.dependencies.map(name => this[name]);
 					if (oldVal === undefined) {
@@ -141,36 +150,16 @@ function revalidateFunc(def) {
 					} else {
 						// Otherwise patch the previous value given the new information.
 						// While func should be a pure function, patch is not necessarily.  For that reason we can store (locally in a closure of the patch function) the previous values that func/patch was given or do whatever we want.  Just be careful/considerate.
-						// TODO: Would .call(this, oldval, ...inputs) be better than that concat?
+						// TODO: Would .call(this, oldval, ...inputs) be better than the concat?
 						newVal = def.patch.apply(this, [oldVal].concat(inputs));
 					}
-
-					// Has the property's value actually changed?
-					if (!equals(newVal, oldVal)) {
-						// Update the cache
-						this._cache.set(def, newVal);
-
-						// Add our dependents
-						addDependents(def.dependents);
-					}
-				};
+					return newVal;
+				});
 			} else {
-				return function () {
-					let oldVal = this._cache.get(def);
-					const propagation = this[propagationSym];
-
+				return checkCached(function () {
 					let inputs = def.dependencies.map(name => this[name]);
-					let newVal = def.func.apply(this, inputs);
-
-					// Has the property's value actually changed?
-					if (!equals(newVal, oldVal)) {
-						// Update the cache
-						this._cache.set(def, newVal);
-
-						// Add our dependents
-						addDependents(def.dependents);
-					}
-				};
+					return def.func.apply(this, inputs);
+				});
 			}
 	}
 }
@@ -222,6 +211,7 @@ export default function (propertyDefinitions, base = Object) {
 		}
 		use(deps, func) {
 			let userObj = {
+				kind: Kind.User,
 				func: func,
 				dependencies: deps,
 				path: new Set()
@@ -268,6 +258,8 @@ export default function (propertyDefinitions, base = Object) {
 			return func(deps.map(name => this[name]));
 		}
 	}
+
+	// TODO: Include property definitions from the base class.
 
 	// Construct the dependency/propagation graph
 	let propWorkingSet = Object.keys(propertyDefinitions);
