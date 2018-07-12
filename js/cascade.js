@@ -60,70 +60,113 @@ function revalidateFunc(def) {
 		}
 	}
 
-	// Consume the propagation list while items may be added to it.
+	// Consume the propagation list while items are still being added to it.
 	function* propagationIterator(propagation) {
 		while (propagation.length != 0) {
-			yield propagation.shift();
+			let toUpdate = propagation.shift();
+			// TODO: May want to do this check before inserting the dependent (rather than before yielding it).  That might be faster.
+			if (this._userCount.get(toUpdate)) {
+				// Has at least one user
+				yield toUpdate;
+			}
+		}
+	}
+
+	// 
+	function propagateUpdates(propagation) {
+		for (let prop of propagationIterator.call(this, propagation)) {
+			switch (prop.kind) {
+				case Kind.Fundamental:
+					throw new Error("Attempted to update a fundamental property: This is an issue with Cascade.");
+
+				case Kind.Computed:
+					prop.revalidate.call(this);
+					break;
+
+				/*
+				case Kinds.Needed:
+					throw new Error("Attempted to update a needed property: Cascade should have given you an error earlier.");
+				*/
+
+				case Kinds.User:
+
+					break;
+
+				default:
+					throw new Error("Unrecognized Property Kind: This is likely a bug in Cascade.");
+			}
 		}
 	}
 
 	// Figure out how to check if our cached value is different from the new value
 	let equals = compareFunction(def);
-	const isComputed = def.kind === Kind.Computed;
 
-	return function (newVal) {
+	// TODO: This section has a fair amount of redundancy.  Can higher order functions save it?
 
-		// Handy references:
-		const propagation = this[propagationSym];
+	// Determine what revalidation function to choose.
+	switch (def.kind) {
+		case Kind.Fundamental:
+			return function (newVal) {
+				let oldVal = this._cache[def.name];
+				const propagation = this[propagationSym];
 
-		let oldVal = this._cache[def.name];
+				// Has the property's value actually changed?
+				if (!equals(newVal, oldVal)) {
+					// Update the cache
+					this._cache.set(def, newVal);
 
-		// Get an update version of a computed value
-		// TODO: Extract all of this logic into multiple functions so that it isn't performed for all properties.  After all, the whole point of using a function which returns a function is that only the work that needs to be done each time is actually done.
-		if (isComputed) {
-			let inputs = def.dependencies.map(name => this[name]);
-			if (oldVal === undefined) {
-				// Cal func if we've never computed this property before.
-				newVal = def.func.apply(this, inputs);
-			} else {
-				// Otherwise patch the previous value given the new information.
-				// While func should be a pure function, patch is not necessarily.  For that reason we can store (locally in a closure of the patch function) the previous values that func/patch was given or do whatever we want.  Just be careful/considerate.
-				newVal = def.patch.apply(this, [oldVal].concat(inputs));
-			}
-		}
-
-		// Has the property's value actually changed?
-		if (!equals(newVal, oldVal)) {
-			// Update the cache
-			this._cache.set(def, newVal);
-
-			// Add our dependents
-			addDependents(propagation, def.dependents);
-
-			// Update the properties that need updating
-			for (let prop of propagationIterator(propagation)) {
-				switch (prop.kind) {
-					case Kind.Fundamental:
-						throw new Error("Attempted to update a fundamental property: ");
-
-					case Kind.Computed:
-						prop.revalidate.call(this);
-						break;
-
-					/*
-					case Kinds.Needed:
-						throw new Error("Attempted to update a needed property: Cascade should have given you an error earlier.");
-					*/
-
-					case Kinds.User:
-						// TODO: Re-call user with new values
-						break;
-
-					default:
-						throw new Error("Unrecognized Property Kind: This is likely a bug in Cascade.");
+					// Add our dependents
+					addDependents(propagation, def.dependents);
 				}
+
+				// Update the properties that need updating.  This only needs to happen on fundamental properties because the are the start of the cascade of changes.  Only one revalidate function needs to be propagating changes so it must be the fundamental properties.
+				propagateUpdates.call(this, propagation);
+			};
+		case Kind.Computed:
+			if (def.patch !== undefined) {
+				return function () {
+					let oldVal = this._cache[def.name];
+					const propagation = this[propagationSym];
+					let newVal;
+
+					let inputs = def.dependencies.map(name => this[name]);
+					if (oldVal === undefined) {
+						// Cal func if we've never computed this property before.
+						newVal = def.func.apply(this, inputs);
+					} else {
+						// Otherwise patch the previous value given the new information.
+						// While func should be a pure function, patch is not necessarily.  For that reason we can store (locally in a closure of the patch function) the previous values that func/patch was given or do whatever we want.  Just be careful/considerate.
+						// TODO: Would .call(this, oldval, ...inputs) be better than that concat?
+						newVal = def.patch.apply(this, [oldVal].concat(inputs));
+					}
+
+					// Has the property's value actually changed?
+					if (!equals(newVal, oldVal)) {
+						// Update the cache
+						this._cache.set(def, newVal);
+
+						// Add our dependents
+						addDependents(propagation, def.dependents);
+					}
+				};
+			} else {
+				return function () {
+					let oldVal = this._cache[def.name];
+					const propagation = this[propagationSym];
+
+					let inputs = def.dependencies.map(name => this[name]);
+					let newVal = def.func.apply(this, inputs);
+
+					// Has the property's value actually changed?
+					if (!equals(newVal, oldVal)) {
+						// Update the cache
+						this._cache.set(def, newVal);
+
+						// Add our dependents
+						addDependents(propagation, def.dependents);
+					}
+				};
 			}
-		};
 	}
 }
 
@@ -160,7 +203,8 @@ export default function (propertyDefinitions, base = Object) {
 
 			// TODO: Replace with module level symbols?
 			this._cache = new Map();
-			this._users = new Map();
+			this._userCount = new Map();
+			this.users = new Set();
 
 			// Update the values for all of our fundamental properties
 			for (let prop of this.layers[0]) {
@@ -172,7 +216,21 @@ export default function (propertyDefinitions, base = Object) {
 			}
 		}
 		use(deps, func) {
-			// TODO: Implement
+			let userObj = {
+				func: func,
+				dependencies: deps
+			};
+
+			this.users.add(userObj);
+
+			deps.forEach(name => {
+				const dependency = propertyDefinitions[name];
+				// Add the userObject as a dependent on the dependency
+				dependency.dependents.push(userObj);
+
+				// Increment the number of users this property has
+				this._userCount.set(dependency, (this._userCount.get(dependency) || 0) + 1);
+			});
 		}
 	}
 
@@ -261,11 +319,11 @@ export default function (propertyDefinitions, base = Object) {
 
 		// Remove the properties that we added in this pass from the dependencies of other properties and add those properties as dependents
 		for (let key of propWorkingSet) {
-			const 
-			if (propertyDefinitions[key].dependencies) {
+			const prop = propertyDefinitions[key];
+			if (prop.dependencies) {
 				for (let old of layer) {
 					// If the property had the added property as a dependency...
-					let index = propertyDefinitions[key].workDeps.indexOf(old.name);
+					let index = prop.workDeps.indexOf(old.name);
 					if (index != -1) {
 						// ...add the property as a dependent of the added property and...
 						old.dependents.push(propertyDefinitions[key] );
