@@ -92,3 +92,38 @@ const Calendar = Cascade({
 window.CalendarModel = Calendar
 
 window.cal = new Calendar();
+
+cal.use(['basis'], function (basis) { console.log(`new basis: ${basis}`); });
+
+document.body.appendChild(visualize(cal));
+
+function visualize(instance) {
+	let root = document.createElement('div');
+	root.innerHTML = `
+		<style>
+			.row {
+				display: flex;
+			}
+			.item {
+				border: 1px solid #aaa;
+				box-shadow: #eee 0 0 3px;
+				padding: 1em;
+				margin: 1em;
+			}
+		</style>
+		${instance.layers.map(layer =>
+			`<div class="row properties">
+			${Array.from(layer.values()).map(def => 
+			`<div class="item">
+				<b>${def.name}(${def.depth})</b><br>
+				Users: ${instance._userCount.get(def)}<br>
+				Dependents: ${def.dependents.map(def => def.name).join()}<br>
+			</div>`).join('')}
+		</div>`).join('')}
+		<div class="row users">
+			${Array.from(instance.users.values()).map(def =>
+				`<div class="item">${def}</div>`).join('')}
+		</div>
+`;
+	return root;
+}

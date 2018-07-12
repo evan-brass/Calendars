@@ -35,68 +35,73 @@ function compareFunction(def) {
 	// TODO: Handle other datatypes
 }
 
+// Insert a *sorted* dependents array into our propagation 
+function addDependents(dependents) {
+	const propagation = this[propagationSym];
+	let i = 0;
+
+	dependency:
+	for (let dep of dependents) {
+		while (i < propagation.length) {
+			if (propagation[i] === dep) {
+				break dependency;
+			}
+			if (this.depths.get(propagation[i]) > this.depths.get(dep).depth) {
+				--i;
+				break;
+			}
+			++i;
+		}
+		if (i == propagation.length) {
+			propagation.push(dep);
+		} else {
+			propagation.splice(i, 0, dep);
+		}
+	}
+}
+
+// Consume the propagation list while items are still being added to it.
+function* propagationIterator(propagation) {
+	while (propagation.length != 0) {
+		let toUpdate = propagation.shift();
+		// TODO: May want to do this check before inserting the dependent (rather than before yielding it).  That might be faster.
+		if (this._userCount.get(toUpdate)) {
+			// Has at least one user
+			yield toUpdate;
+		}
+	}
+}
+
+// 
+function propagateUpdates() {
+	const propagation = this[propagationSym];
+
+	for (let prop of propagationIterator.call(this, propagation)) {
+		switch (prop.kind) {
+			case Kind.Fundamental:
+				throw new Error("Attempted to update a fundamental property: This is an issue with Cascade.");
+
+			case Kind.Computed:
+				prop.revalidate.call(this);
+				break;
+
+			/*
+			case Kinds.Needed:
+				throw new Error("Attempted to update a needed property: Cascade should have given you an error earlier.");
+			*/
+
+			case Kinds.User:
+				prop.func.call(undefined, prop.dependencies.map(name => this[name]));
+				break;
+
+			default:
+				throw new Error("Unrecognized Property Kind: This is likely a bug in Cascade.");
+		}
+	}
+}
+
 // 
 function revalidateFunc(def) {
-	// Insert a *sorted* dependents array into our propagation 
-	function addDependents(propagation, dependents) {
-		let i = 0;
-
-		dependency:
-		for (let dep of dependents) {
-			while (i < propagation.length) {
-				if (propagation[i] === dep) {
-					break dependency;
-				}
-				if (propagation[i].depth > dep.depth) {
-					--i;
-					break;
-				}
-			}
-			if (i == propagation.length) {
-				propagation.push(dep);
-			} else {
-				propagation.splice(i, 0, dep);
-			}
-		}
-	}
-
-	// Consume the propagation list while items are still being added to it.
-	function* propagationIterator(propagation) {
-		while (propagation.length != 0) {
-			let toUpdate = propagation.shift();
-			// TODO: May want to do this check before inserting the dependent (rather than before yielding it).  That might be faster.
-			if (this._userCount.get(toUpdate)) {
-				// Has at least one user
-				yield toUpdate;
-			}
-		}
-	}
-
-	// 
-	function propagateUpdates(propagation) {
-		for (let prop of propagationIterator.call(this, propagation)) {
-			switch (prop.kind) {
-				case Kind.Fundamental:
-					throw new Error("Attempted to update a fundamental property: This is an issue with Cascade.");
-
-				case Kind.Computed:
-					prop.revalidate.call(this);
-					break;
-
-				/*
-				case Kinds.Needed:
-					throw new Error("Attempted to update a needed property: Cascade should have given you an error earlier.");
-				*/
-
-				case Kinds.User:
-
-					break;
-
-				default:
-					throw new Error("Unrecognized Property Kind: This is likely a bug in Cascade.");
-			}
-		}
-	}
 
 	// Figure out how to check if our cached value is different from the new value
 	let equals = compareFunction(def);
@@ -107,7 +112,7 @@ function revalidateFunc(def) {
 	switch (def.kind) {
 		case Kind.Fundamental:
 			return function (newVal) {
-				let oldVal = this._cache[def.name];
+				let oldVal = this._cache.get(def);
 				const propagation = this[propagationSym];
 
 				// Has the property's value actually changed?
@@ -116,7 +121,7 @@ function revalidateFunc(def) {
 					this._cache.set(def, newVal);
 
 					// Add our dependents
-					addDependents(propagation, def.dependents);
+					addDependents(def.dependents);
 				}
 
 				// Update the properties that need updating.  This only needs to happen on fundamental properties because the are the start of the cascade of changes.  Only one revalidate function needs to be propagating changes so it must be the fundamental properties.
@@ -125,7 +130,7 @@ function revalidateFunc(def) {
 		case Kind.Computed:
 			if (def.patch !== undefined) {
 				return function () {
-					let oldVal = this._cache[def.name];
+					let oldVal = this._cache.get(def);
 					const propagation = this[propagationSym];
 					let newVal;
 
@@ -146,12 +151,12 @@ function revalidateFunc(def) {
 						this._cache.set(def, newVal);
 
 						// Add our dependents
-						addDependents(propagation, def.dependents);
+						addDependents(def.dependents);
 					}
 				};
 			} else {
 				return function () {
-					let oldVal = this._cache[def.name];
+					let oldVal = this._cache.get(def);
 					const propagation = this[propagationSym];
 
 					let inputs = def.dependencies.map(name => this[name]);
@@ -163,7 +168,7 @@ function revalidateFunc(def) {
 						this._cache.set(def, newVal);
 
 						// Add our dependents
-						addDependents(propagation, def.dependents);
+						addDependents(def.dependents);
 					}
 				};
 			}
@@ -218,19 +223,49 @@ export default function (propertyDefinitions, base = Object) {
 		use(deps, func) {
 			let userObj = {
 				func: func,
-				dependencies: deps
+				dependencies: deps,
+				path: new Set()
 			};
 
 			this.users.add(userObj);
 
+			// WorkingDeps should also probably be a Set, I just don't know how to iterate over a Set and add items to it.
+			let workingDeps = deps.map(name => propertyDefinitions[name]);
+			const path = userObj.path;
+			while (workingDeps.length != 0) {
+				// TODO: Might not need to do a FIFO loop here which is probably slower.  I think a LIFO loop would be fine with push and pop.
+				const workingDef = workingDeps.shift();
+				path.add(workingDef);
+				workingDeps.concat(workingDef.dependencies);
+			}
+
+			// Increment the userCount on the entire path
+			path.forEach(def => {
+				let prev = this._userCount.get(def);
+
+				// If this property didn't have a userCount before then it's user count should have been 0
+				if (prev === undefined) {
+					prev = 0;
+				}
+				// If the previous userCount is 0 then we need to revalidate the property because it likely hasn't been updated.
+				if (prev === 0 && def.kind == Kind.Computed) {
+					def.revalidate.call(this);
+				}
+
+				this._userCount.set(def, prev + 1);
+			});
+			// After all the dependencies that need to have been revalidated, propagate their updates
+			propagateUpdates.call(this, this[propagationSym]);
+
+			// Add this user as a dependent on all of its dependencies
 			deps.forEach(name => {
 				const dependency = propertyDefinitions[name];
 				// Add the userObject as a dependent on the dependency
 				dependency.dependents.push(userObj);
-
-				// Increment the number of users this property has
-				this._userCount.set(dependency, (this._userCount.get(dependency) || 0) + 1);
 			});
+
+			// Actually call the function
+			return func(deps.map(name => this[name]));
 		}
 	}
 
@@ -305,6 +340,7 @@ export default function (propertyDefinitions, base = Object) {
 					},
 					set: setter
 				});
+
 				def.dependents = [];
 				depths.set(def, depth);
 
